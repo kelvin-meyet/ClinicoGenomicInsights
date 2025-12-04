@@ -94,20 +94,31 @@ train_viz$Set <- "Train"
 test_viz$Set <- "Test"
 combined_data_viz <- bind_rows(train_viz, test_viz)
 
-# Plot 1: Distribution of `pfs_time`
-ggplot(combined_data_viz, aes(x = pfs_months, fill = factor(Set, labels = c("Test Set", "Train Set") ) )) +
-  geom_histogram(alpha = 0.7, position = "stack", bins = 30) +
+
+##Plot 1 - good 
+combined_data_viz$Set <- factor(combined_data_viz$Set,
+                                levels = c("Train", "Test"))
+ggplot(combined_data_viz, 
+       aes(x = pfs_months,
+           y = ..density.., 
+           fill = Set)) +
+  geom_histogram(fill = "#1f78b4", alpha = 0.75, bins = 30, color = "black") +
+  facet_wrap(~Set, ncol = 1,
+             labeller = labeller(Set = c(Train = "Training Data", Test = 'Test Data'))) +
   labs(
-    title = "Distribution of Progression Free Survival Time (Months)",
-    x = "Time (Months)",
-    y = "Frequency",
-    fill = "Dataset"
+    title = "Probability Histograms of PFS Time by Dataset",
+    x = "Time (months)",
+    y = "Probability Density"
   ) +
   scale_fill_brewer(palette = "Set1") +
   theme(
     text = element_text(size = 14),
-    plot.title = element_text(hjust = 0.5, size = 16, face = "bold")
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    #strip.text = element_text(face = "bold", size = 14),
+    legend.position = "none"   # removes legend
   )
+
+
 
 
 # Plot 2: Proportion of `pfs_status`
