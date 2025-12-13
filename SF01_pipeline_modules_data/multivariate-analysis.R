@@ -11,8 +11,8 @@ source("deepsurv.R")
 
 #-----------------------> Load Data <----------------------------
 #--- Read any of the data below to run the respective ML Experiment Pipeline--
-clinical <- read.csv("cleaned_imputed_data_for_ml-integrated.csv")%>%
-  select(age:pfs_status)
+# clinical <- read.csv("cleaned_imputed_data_for_ml-integrated.csv")%>%
+#   select(age:pfs_status)
 
 
 clinical_all_genomic <- read.csv("cleaned_imputed_data_for_ml-integrated.csv")
@@ -29,7 +29,7 @@ clinical_all_genomic <- read.csv("cleaned_imputed_data_for_ml-integrated.csv")
 
 
 
-dat_new <- clinical  #----> update this based on the data options loaded 
+dat_new <- clinical_all_genomic  #----> update this based on the data options loaded 
 
 #----------------------->Data Modelling<-----------------
 #---convert integer to numeric and character to categorical-
@@ -326,8 +326,8 @@ median(pred_cox_risk)
 predictions_risk_matrix_cox <- cbind(X_test_pred_req, pred_cox_surv, pred_cox_risk) 
 predictions_risk_matrix_cox
 
-write.csv(predictions_risk_matrix_cox, 
-          file="C:/Users/dumbl/OneDrive/Desktop/ijerp-code/Analysis/pcm_prob_risk_predictions.csv")
+# write.csv(predictions_risk_matrix_cox, 
+#           file="C:/Users/dumbl/OneDrive/Desktop/ijerp-code/Analysis/pcm_prob_risk_predictions.csv")
 
 
 #=====================Fivenumber Summary PCM====================
@@ -517,9 +517,9 @@ median(pred_rsf_risk)
 
 predictions_risk_matrix_rsf <- cbind(X_test_pred_rsf_req, pred_rsf, pred_rsf_risk) 
 predictions_risk_matrix_rsf
-
-write.csv(predictions_risk_matrix_rsf, 
-          file="C:/Users/dumbl/OneDrive/Desktop/ijerp-code/Analysis/rsf_prob_risk_predictions.csv")
+# 
+# write.csv(predictions_risk_matrix_rsf, 
+#           file="C:/Users/dumbl/OneDrive/Desktop/ijerp-code/Analysis/rsf_prob_risk_predictions.csv")
 
 #=====================Fivenumber Summary RSF-risk====================
 pred_df <- tibble(surv_prob = as.vector(pred_rsf_risk))
@@ -895,7 +895,7 @@ ggplot(shortlisted_GBFA, aes(x = reorder(Feature, Importance), y = Importance)) 
     plot.title = element_text(hjust = 0.5, size = 16, face = "bold")
   ) + theme_minimal()
 
-#======Deepsurv Risk Predictions=======
+#======Deepsurv Risk & Survival Predictions=======
 median_sensitivity <- round(median(importance_df$Importance), 4)
 shortlisted <- importance_df[importance_df$Importance > median_sensitivity,]
 shortlisted_features <- shortlisted$Feature
@@ -914,37 +914,37 @@ final_model1 <- build_deepsurv(
   lr_decay = 1e-2
 )
 
-predicted_risk_deepsurv <- final_model1 %>% predict(shortlist_test)
-mean(predicted_risk_deepsurv)
-median(predicted_risk_deepsurv)
-cat("Predicted Risk Score for Patient 2:", predicted_risk_deepsurv[2], "\n")
-cat("Predicted Risk Score for Patient 10:", predicted_risk_deepsurv[10], "\n") #observe event(progression) sooner
-deepsurv_risks <- cbind(shortlist_test, predicted_risk_deepsurv) 
+predicted_log_risk_deepsurv <- final_model1 %>% predict(shortlist_test); predicted_log_risk_deepsurv
+predicted_relative_risk_deepsurv <- exp(predicted_log_risk_deepsurv); predicted_relative_risk_deepsurv
 
+mean(predicted_relative_risk_deepsurv)
+median(predicted_relative_risk_deepsurv)
+cat("Predicted Risk Score for Patient 2:", predicted_relative_risk_deepsurv[2], "\n")
+cat("Predicted Risk Score for Patient 10:", predicted_relative_risk_deepsurv[10], "\n") 
+deepsurv_risks <- data.frame(shortlist_test, predicted_log_risk_deepsurv, predicted_relative_risk_deepsurv) 
+deepsurv_risks
 
-write.csv(deepsurv_risks, 
-          file="C:/Users/dumbl/OneDrive/Desktop/ijerp-code/Analysis/deepsurv_risks_predictions.csv")
+# write.csv(deepsurv_risks, 
+#           file="C:/Users/dumbl/OneDrive/Desktop/ijerp-code/Analysis/deepsurv_risks_predictions.csv")
 
 
 #=====================Fivenumber Summary DeepSurv-risk====================
-pred_df <- tibble(surv_prob = as.vector(predicted_risk_deepsurv))
+pred_df <- tibble(surv_risk = as.vector(predicted_relative_risk_deepsurv))
 
 # Five-number summary + extras
 fivenum_deepsurv_risk <- pred_df %>%
   summarise(
     n = n(),
-    mean = mean(surv_prob, na.rm = TRUE),
-    stdev = sd(surv_prob, na.rm = TRUE),
-    min = min(surv_prob, na.rm = TRUE),
-    q1 = quantile(surv_prob, 0.25, na.rm = TRUE),
-    median = median(surv_prob, na.rm = TRUE),
-    q3 = quantile(surv_prob, 0.75, na.rm = TRUE),
-    max = max(surv_prob, na.rm = TRUE)
+    mean = mean(surv_risk, na.rm = TRUE),
+    stdev = sd(surv_risk, na.rm = TRUE),
+    min = min(surv_risk, na.rm = TRUE),
+    q1 = quantile(surv_risk, 0.25, na.rm = TRUE),
+    median = median(surv_risk, na.rm = TRUE),
+    q3 = quantile(surv_risk, 0.75, na.rm = TRUE),
+    max = max(surv_risk, na.rm = TRUE)
   )
 
 print(fivenum_deepsurv_risk)
-
-
 
 
 
@@ -1089,10 +1089,6 @@ for (run in 1:num_repeats) {
 }
 
 print(results_summary)
-
-
-
-
 
 
 
