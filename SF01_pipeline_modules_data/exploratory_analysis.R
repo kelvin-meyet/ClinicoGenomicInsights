@@ -45,18 +45,22 @@ data_viz <- dat_new
 num_censored <- nrow(data_viz) - sum(data_viz$pfs_status)   #all patients - patients with progression free status
 cat(sprintf("%.1f%% of records are censored\n", (num_censored / nrow(data_viz)) * 100))
 
-# Create a ggplot for the stacked histogram
+
+png(filename = "Figure2.png", width = 1920, height = 1080, units = "px", res = 300)
 ggplot(data_viz, aes(x = pfs_months,
                      fill = factor(pfs_status, 
                                    labels = c("Censored Events", "Observed Progression")))) +
-  geom_histogram(alpha = 0.7, bins = 30, position = "stack", color = "white" ) +
+  geom_histogram(alpha = 0.7, bins = 30, position = "stack", color = "white") +
   labs(x = "Time (months)", y = "Frequency",
        title = "Time Distribution for Censored and Disease Progression Patients") + 
   #scale_fill_brewer(palette = "Oranges", name = "Status", labels = c("Censored", "Progress_Free"))
   scale_fill_brewer(palette = "Set1", name = "Status", labels = c("Censored", "Progression")) +
   theme(
-    text = element_text(size = 14),
-    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
+    text = element_text(size = 12),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    plot.margin = margin(t=10, r=5, b=10, l=60)
+    )
+dev.off()
 
 
 #=====================Fivenumber Summary====================
@@ -96,6 +100,8 @@ combined_data_viz <- bind_rows(train_viz, test_viz)
 
 
 ##Plot 1 - good 
+png(filename = "Figure A.png", width = 1920, height = 1080, units = "px", res = 300)
+
 combined_data_viz$Set <- factor(combined_data_viz$Set,
                                 levels = c("Train", "Test"))
 ggplot(combined_data_viz, 
@@ -114,10 +120,11 @@ ggplot(combined_data_viz,
   theme(
     text = element_text(size = 14),
     plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    #plot.margin = margin(t=10, r=5, b=10, l=60)
     #strip.text = element_text(face = "bold", size = 14),
     legend.position = "none"   # removes legend
   )
-
+dev.off()
 
 
 
@@ -144,76 +151,98 @@ ggplot(pfs_status_summary, aes(x = Set, y = percentage, fill = as.factor(pfs_sta
 
 #========================survival curve===================================
 #---------Radiation Therapy ----------
+png(filename = "Figure4.png", width = 1920, height = 1080, units = "px", res = 300)
 comb_dat$pfs_status = factor(ifelse(comb_dat$pfs_status == 1, "progression", "censored"))
 fit_rad_therapy <- survfit(Surv(comb_dat$pfs_months, comb_dat$pfs_status=="progression") ~ comb_dat$radiation_therapy,
                            data=comb_dat)
 ggsurvplot(fit_rad_therapy,
-           legend.title     = "Radiation Therapy:",
-           legend.labs      = c("NO", "YES"),
+           legend.title     = "Radiation Therapy (RT):",
+           legend.labs      = c("No", "Yes"),
            conf.int         = TRUE,
-           pval             = TRUE, 
-           tables.height    = 0.2,
-           tables.theme     = theme_cleantable(),
+           pval             = TRUE,
+           pval.size        = 2.5,
+           tables.height    = 0.25,
+           tables.theme     = theme_cleantable() + 
+             theme(axis.text.y = element_text(size=8)),
            risk.table       = TRUE, # Add risk table
            risk.table.col   = "strata", # Change risk table color by groups
+           risk.table.fontsize = 2.5,  # smaller font size
            linetype         = "strata", # Change line type by groups
-           surv.median.line = "hv", # Specify median survival
+           surv.median.line = "hv",  # Specify median survival
            ggtheme          = theme_bw(), # Change ggplot2 theme
-           palette          = c("#00AFBB", "#FC4E07")) # "#2D2D2D"  #E7B800 -- "#E7B800", "#2E9FDF"
+           palette          = c("#00AFBB", "#FC4E07")) #"#2D2D2D"  #E7B800 -- "#E7B800", "#2E9FDF"
+dev.off()
 
 
 #---------Neoplasm cancer status----------
+png(filename = "Figure B.png", width = 1920, height = 1080, units = "px", res = 300)
 fit_neoplasm_cancer <- survfit(Surv(comb_dat$pfs_months, comb_dat$pfs_status=="progression") ~ comb_dat$neo_cancer_status,
                                data = comb_dat)
 ggsurvplot(fit_neoplasm_cancer,
            legend.title     = "Neoplasm Cancer Status:",
            legend.labs      = c("Tumor Free", "With Tumor"),
            conf.int         = TRUE,
-           pval             = TRUE, 
+           pval             = TRUE,
+           pval.size        = 2.5,
            tables.height    = 0.2,
-           tables.theme     = theme_cleantable(),
+           tables.theme     = theme_cleantable() + 
+             theme(axis.text.y = element_text(size=8)),
            risk.table       = TRUE, # Add risk table
            risk.table.col   = "strata", # Change risk table color by groups
+           risk.table.fontsize = 2.5, #smaller font size
            linetype         = "strata", # Change line type by groups
            surv.median.line = "hv", # Specify median survival
            ggtheme          = theme_bw(), # Change ggplot2 theme
            palette          = c("#00AFBB", "#FC4E07"))
+dev.off()
 
 #---------History of Neo-adjuvant treatment----------
+png(filename = "Figure C.png", width = 1920, height = 1080, units = "px", res = 300)
 fit_hist_neoadjuv_trtmnt <- survfit(Surv(comb_dat$pfs_months, comb_dat$pfs_status=="progression") ~ comb_dat$hist_neoadjuv_trtmnt,
                                     data = comb_dat)
 ggsurvplot(fit_hist_neoadjuv_trtmnt,
            legend.title     = "Neoadjuvant Treatment History:",
            legend.labs      = c("No", "Yes"),
            conf.int         = TRUE,
-           pval             = TRUE, 
+           conf.int.style   = "step", 
+           pval             = TRUE,
+           pval.size        = 2.5,
            tables.height    = 0.2,
-           tables.theme     = theme_cleantable(),
-           risk.table       = TRUE, # Add risk table
-           risk.table.col   = "strata", # Change risk table color by groups
-           linetype         = "strata", # Change line type by groups
-           surv.median.line = "hv", # Specify median survival
-           ggtheme          = theme_bw(), # Change ggplot2 theme
+           xlab             = "Time (months)",
+           tables.theme     = theme_cleantable() + theme(axis.text.y = element_text(size=8)),
+           risk.table.fontsize = 2.5, 
+           risk.table       = TRUE, 
+           risk.table.col   = "strata", 
+           linetype         = "strata", 
+           surv.median.line = "hv", 
+           ggtheme          = theme_bw(), 
            palette          = c("#00AFBB", "#FC4E07"))
+dev.off()
+
+
 
 
 #---------New Tumor After Initial Treatment----------
+png(filename = "Figure3.png", width = 1920, height = 1080, units = "px", res = 300)
 fit_new_tumor_afit <- survfit(Surv(comb_dat$pfs_months, comb_dat$pfs_status=="progression") ~ comb_dat$new_tumor_afit,
                               data = comb_dat)
 ggsurvplot(fit_new_tumor_afit,
            legend.title     = "New Tumor After Initial Treatment:",
            legend.labs      = c("No", "Yes"),
            conf.int         = TRUE,
-           pval             = TRUE, 
+           pval             = TRUE,
+           pval.size        = 2.5,
            tables.height    = 0.2,
-           tables.theme     = theme_cleantable(),
+           tables.theme     = theme_cleantable() + 
+             theme(axis.text.y = element_text(size=8)),
            risk.table       = TRUE, # Add risk table
            risk.table.col   = "strata", # Change risk table color by groups
+           risk.table.fontsize = 2.5, 
            linetype         = "strata", # Change line type by groups
            surv.median.line = "hv", # Specify median survival
            ggtheme          = theme_bw(), # Change ggplot2 theme
            palette          = c("#00AFBB", "#FC4E07"))
-
+dev.off()
 
 
 
