@@ -15,7 +15,7 @@ source("deepsurv.R")
 #   select(age:pfs_status)
 
 
-clinical_all_genomic <- read.csv("cleaned_imputed_data_for_ml-integrated.csv")
+clinical_all_genomic <- read.csv("prca_clinicogenomics_data.csv")
 
 
 # clinical_novel_genomic <- read.csv("cleaned_imputed_data_for_ml-integrated.csv")%>%

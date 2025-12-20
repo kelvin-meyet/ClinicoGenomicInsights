@@ -20,7 +20,7 @@ library(survminer)
 
 #----load clinical and genomic data 
 #require(dplyr)
-clinical_all_genomic <- read.csv("cleaned_imputed_data_for_ml-integrated.csv")
+clinical_all_genomic <- read.csv("prca_clinicogenomics_data.csv")
 dat_new <- clinical_all_genomic
 
 #---convert integer to numeric  and character to categorical--------
