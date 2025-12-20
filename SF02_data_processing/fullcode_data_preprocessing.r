@@ -1070,7 +1070,7 @@ dim(final_combined_data)
 
 #Data for ML
 write.csv(imputed_result,
-          file = "out_data/cleaned_imputed_data_for_ml-integrated.csv",
+          file = "out_data/prca_clinicogenomics_data.csv",
           row.names = F)
 
 
