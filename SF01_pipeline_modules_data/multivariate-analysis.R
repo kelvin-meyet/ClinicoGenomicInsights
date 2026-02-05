@@ -11,7 +11,7 @@ source("deepsurv.R")
 
 #-----------------------> Load Data <----------------------------
 #--- Read any of the data below to run the respective ML Experiment Pipeline--
-# clinical <- read.csv("cleaned_imputed_data_for_ml-integrated.csv")%>%
+# clinical <- read.csv("prca_clinicogenomics_data.csv")%>%
 #   select(age:pfs_status)
 
 
@@ -603,7 +603,7 @@ for (iter in 1:iterations) {
   final_model <- rfsrc(formula = Surv(pfs_months, pfs_status) ~ ., 
                        data = processed_train_data,
                        mtry = best_par$mtry,
-                       nodesize = best_par$mtry,
+                       nodesize = best_par$nodesize,
                        ntree = best_par$ntree)
   # Predict on test data - model never seen & train data
   rsf_pred <- predict(object = final_model, newdata = processed_test_data)
@@ -635,6 +635,13 @@ cat("The sd of test concordance after ",iter," runs is: ",  sd(rsf_pred_results_
 # and evaluating its performance on a separate test set. The repeated iterations ensure that the model's performance is 
 # adequately assessed and helps in obtaining stable estimates of the model's predictive performance
 #==================================================================================================================================
+
+
+
+
+
+
+
 
 
 #================DeepSurv ===================================================
@@ -818,6 +825,7 @@ final_history <- final_model %>% fit(
   )
 )
 
+
 # Evaluate on the training set
 cat("Evaluating final model on training set...\n")
 final_train_predictions <- final_model %>% predict(X_train_processed)
@@ -957,7 +965,7 @@ results_summary <- data.frame(
 )
 
 # Number of repetitions
-num_repeats <- 3
+num_repeats <- 5
 
 for (run in 1:num_repeats) {
   cat("\n===== RUN", run, "=====\n")
@@ -1089,6 +1097,537 @@ for (run in 1:num_repeats) {
 }
 
 print(results_summary)
+
+
+
+
+
+
+
+
+#========================new===================
+
+###############################################################################
+# DeepSurv MAIN SCRIPT (Single-Run Grid Search + Final Fit + Evaluation)
+# + Optional MULTI-RUN wrapper (if you later change your mind)
+#
+# REQUIREMENTS:
+#   - You already have `train` and `test` data.frames in memory
+#   - Both include: pfs_months (time), pfs_status (event: 1=event, 0=censored)
+#   - You have saved the rewritten deepsurv.R in your working directory
+#
+# OUTPUTS:
+#   SINGLE RUN:
+#     - CV table across hyperparameter grid
+#     - Best hyperparameters (by highest mean CV C-index; tie-break low SD)
+#     - Final fitted model evaluated on TRAIN and TEST (C-index)
+#     - Variable importance (GBFA) + plots
+#     - Risk score predictions on TEST + five-number summary
+#
+#   MULTI-RUN (optional section at bottom):
+#     - Repeats tuning+final evaluation over multiple seeds
+#     - Summary mean±SD for Train/Test C-index
+###############################################################################
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(caret)
+  library(ggplot2)
+  library(tibble)
+  library(keras)
+  library(tensorflow)
+})
+
+#---------------------------#
+# 0) Source your fixed DeepSurv functions
+#---------------------------#
+source("deepsurv.R")
+
+#---------------------------#
+# 1) Sanity checks
+#---------------------------#
+stopifnot(is.data.frame(train), is.data.frame(test))
+stopifnot(all(c("pfs_months", "pfs_status") %in% names(train)))
+stopifnot(all(c("pfs_months", "pfs_status") %in% names(test)))
+
+train <- train %>% mutate(pfs_months = as.numeric(pfs_months),
+                          pfs_status = as.integer(pfs_status))
+test  <- test  %>% mutate(pfs_months = as.numeric(pfs_months),
+                          pfs_status = as.integer(pfs_status))
+
+if (!all(train$pfs_status %in% c(0, 1)) || !all(test$pfs_status %in% c(0, 1))) {
+  stop("pfs_status must be coded 0/1 (0=censored, 1=event).")
+}
+
+#---------------------------#
+# 2) Preprocessing: min-max numeric + one-hot categorical (train-anchored)
+#---------------------------#
+prep_design_matrices <- function(train_df, test_df,
+                                 time_col = "pfs_months",
+                                 event_col = "pfs_status") {
+  
+  X_train_raw <- train_df %>% select(-all_of(c(time_col, event_col)))
+  X_test_raw  <- test_df  %>% select(-all_of(c(time_col, event_col)))
+  
+  # Coerce character -> factor
+  X_train_raw <- X_train_raw %>% mutate(across(where(is.character), as.factor))
+  X_test_raw  <- X_test_raw  %>% mutate(across(where(is.character), as.factor))
+  
+  is_num <- sapply(X_train_raw, is.numeric)
+  num_cols <- names(X_train_raw)[is_num]
+  cat_cols <- names(X_train_raw)[!is_num]
+  
+  # ---- Min-max scale numeric using TRAIN params only ----
+  if (length(num_cols) > 0) {
+    mins <- sapply(X_train_raw[num_cols], min, na.rm = TRUE)
+    maxs <- sapply(X_train_raw[num_cols], max, na.rm = TRUE)
+    ranges <- maxs - mins
+    ranges[ranges == 0] <- 1
+    
+    X_train_num <- as.data.frame(Map(function(x, mn, rg) (x - mn) / rg,
+                                     X_train_raw[num_cols], mins, ranges))
+    X_test_num  <- as.data.frame(Map(function(x, mn, rg) (x - mn) / rg,
+                                     X_test_raw[num_cols], mins, ranges))
+    names(X_train_num) <- num_cols
+    names(X_test_num)  <- num_cols
+  } else {
+    X_train_num <- data.frame()
+    X_test_num  <- data.frame()
+  }
+  
+  # ---- One-hot encode categorical using TRAIN levels ----
+  if (length(cat_cols) > 0) {
+    for (cc in cat_cols) {
+      X_train_raw[[cc]] <- as.factor(X_train_raw[[cc]])
+      X_test_raw[[cc]]  <- as.factor(X_test_raw[[cc]])
+      levels(X_test_raw[[cc]]) <- levels(X_train_raw[[cc]])
+    }
+    
+    fml <- as.formula(paste("~", paste(cat_cols, collapse = " + "), "- 1"))
+    mm_train <- model.matrix(fml, data = X_train_raw)
+    mm_test  <- model.matrix(fml, data = X_test_raw)
+    
+    X_train_cat <- as.data.frame(mm_train)
+    X_test_cat  <- as.data.frame(mm_test)
+  } else {
+    X_train_cat <- data.frame()
+    X_test_cat  <- data.frame()
+  }
+  
+  X_train <- cbind(X_train_num, X_train_cat)
+  X_test  <- cbind(X_test_num,  X_test_cat)
+  
+  # y is [time, event] to match fixed deepsurv.R
+  y_train <- as.matrix(train_df %>% select(all_of(c(time_col, event_col))))
+  y_test  <- as.matrix(test_df  %>% select(all_of(c(time_col, event_col))))
+  colnames(y_train) <- c(time_col, event_col)
+  colnames(y_test)  <- c(time_col, event_col)
+  
+  list(
+    X_train = as.matrix(X_train),
+    X_test  = as.matrix(X_test),
+    y_train = y_train,
+    y_test  = y_test
+  )
+}
+
+prep <- prep_design_matrices(train, test, "pfs_months", "pfs_status")
+X_train <- prep$X_train
+X_test  <- prep$X_test
+y_train <- prep$y_train
+y_test  <- prep$y_test
+
+cat("X_train dim:", paste(dim(X_train), collapse = " x "), "\n")
+cat("X_test  dim:", paste(dim(X_test), collapse = " x "), "\n")
+
+#---------------------------#
+# 3) Hyperparameter grid (single-run tuning)
+#    NOTE: Keep grid modest to reduce compute and instability.
+#---------------------------#
+# hyper_grid <- expand.grid(
+#   num_layer   = c(1, 2),
+#   num_nodes   = c(16, 32, 64),
+#   num_dropout = c(0.2, 0.3, 0.4),
+#   num_lr      = c(0.0005, 0.001),
+#   batch_size  = c(16),
+#   num_l2      = c(1e-4, 1e-3, 1e-2),
+#   lr_decay    = c(1e-2)      # keep constant unless you truly want to tune it
+# )
+
+hyper_grid <- expand.grid(
+  num_layer = c(1),
+  num_nodes = c(1),
+  num_dropout = c(0.2, 0.3, 0.4),
+  num_lr = c(0.0005, 0.001),
+  batch_size = c(16),
+  num_l2 = c(0.2, 0.4, 0.6)
+)
+
+#---------------------------#
+# 4) CV grid search (TRAIN only; stratified folds by event)
+#---------------------------#
+cv_grid_search <- function(X, y, hyper_grid,
+                           k_folds = 5,
+                           epochs = 100,
+                           patience = 20,
+                           seed = 123,
+                           verbose_fit = 1) {
+  
+  set.seed(seed)
+  tensorflow::set_random_seed(seed)
+  
+  folds <- caret::createFolds(y[, "pfs_status"], k = k_folds, list = FALSE)
+  
+  results <- hyper_grid
+  results$Mean_C_Index <- NA_real_
+  results$Std_C_Index  <- NA_real_
+  
+  for (i in seq_len(nrow(hyper_grid))) {
+    params <- as.list(hyper_grid[i, ])
+    c_scores <- numeric(0)
+    
+    for (fold in 1:k_folds) {
+      tr_idx <- which(folds != fold)
+      va_idx <- which(folds == fold)
+      
+      X_tr <- X[tr_idx, , drop = FALSE]
+      y_tr <- y[tr_idx, , drop = FALSE]
+      X_va <- X[va_idx, , drop = FALSE]
+      y_va <- y[va_idx, , drop = FALSE]
+      
+      model <- build_deepsurv(
+        num_input = ncol(X_tr),
+        num_layer = params$num_layer,
+        num_nodes = params$num_nodes,
+        string_activation = "selu",
+        num_l2 = params$num_l2,
+        num_dropout = params$num_dropout,
+        num_lr = params$num_lr,
+        lr_decay = params$lr_decay
+      )
+      
+      early_stopping <- callback_early_stopping(
+        monitor = "val_loss",
+        patience = patience,
+        restore_best_weights = TRUE
+      )
+      
+      model %>% fit(
+        x = X_tr,
+        y = y_tr,
+        batch_size = params$batch_size,
+        epochs = epochs,
+        validation_data = list(X_va, y_va),
+        verbose = verbose_fit,
+        callbacks = list(early_stopping)
+      )
+      
+      lp_va <- as.numeric(model %>% predict(X_va))
+      c_scores <- c(c_scores,
+                    c_index(lp_va,
+                            time = y_va[, "pfs_months"],
+                            event = y_va[, "pfs_status"]))
+    }
+    
+    results$Mean_C_Index[i] <- mean(c_scores, na.rm = TRUE)
+    results$Std_C_Index[i]  <- sd(c_scores, na.rm = TRUE)
+    
+    # Optional progress line
+    cat("Grid", i, "of", nrow(hyper_grid),
+        "Mean_C:", round(results$Mean_C_Index[i], 4),
+        "SD:", round(results$Std_C_Index[i], 4), "\n")
+  }
+  
+  # Best = highest mean; tie-break = lowest SD
+  results <- results[order(-results$Mean_C_Index, results$Std_C_Index), , drop = FALSE]
+  
+  list(results = results, best_params = results[1, , drop = FALSE])
+}
+
+#---------------------------#
+# 5) Fit final model (full TRAIN) + evaluate TRAIN and TEST
+#---------------------------#
+fit_and_evaluate <- function(X_train, y_train, X_test, y_test,
+                             best_params,
+                             epochs = 200,
+                             validation_split = 0.25,
+                             seed = 123,
+                             verbose_fit = 0) {
+  
+  set.seed(seed)
+  tensorflow::set_random_seed(seed)
+  
+  final_model <- build_deepsurv(
+    num_input = ncol(X_train),
+    num_layer = best_params$num_layer,
+    num_nodes = best_params$num_nodes,
+    string_activation = "selu",
+    num_l2 = best_params$num_l2,
+    num_dropout = best_params$num_dropout,
+    num_lr = best_params$num_lr,
+    lr_decay = best_params$lr_decay
+  )
+  
+  callbacks <- list(
+    callback_reduce_lr_on_plateau(monitor = "loss", factor = 0.5, patience = 5, min_lr = 1e-6),
+    callback_early_stopping(monitor = "loss", patience = 10, restore_best_weights = TRUE)
+  )
+  
+  history <- final_model %>% fit(
+    x = X_train,
+    y = y_train,
+    batch_size = best_params$batch_size,
+    epochs = epochs,
+    validation_split = validation_split,
+    verbose = verbose_fit,
+    callbacks = callbacks
+  )
+  
+  lp_tr <- as.numeric(final_model %>% predict(X_train))
+  lp_te <- as.numeric(final_model %>% predict(X_test))
+  
+  c_tr <- c_index(lp_tr, time = y_train[, "pfs_months"], event = y_train[, "pfs_status"])
+  c_te <- c_index(lp_te, time = y_test[, "pfs_months"],  event = y_test[, "pfs_status"])
+  
+  list(model = final_model, history = history, c_train = c_tr, c_test = c_te)
+}
+
+#---------------------------#
+# 6) SINGLE RUN: execute tuning + final evaluation
+#---------------------------#
+seed_single <- 123
+
+cat("\n===== SINGLE RUN: GRID SEARCH CV =====\n")
+gs <- cv_grid_search(
+  X = X_train,
+  y = y_train,
+  hyper_grid = hyper_grid,
+  k_folds = 5,
+  epochs = 100,
+  patience = 20,
+  seed = seed_single,
+  verbose_fit = 0
+)
+
+cv_results <- gs$results
+best_params <- gs$best_params
+
+cat("\n===== BEST HYPERPARAMETERS (SINGLE RUN) =====\n")
+print(best_params)
+
+
+
+cat("\n===== FIT FINAL MODEL + EVALUATE =====\n")
+fe <- fit_and_evaluate(
+  X_train = X_train, y_train = y_train,
+  X_test  = X_test,  y_test  = y_test,
+  best_params = best_params,
+  epochs = 200,
+  validation_split = 0.25,
+  seed = seed_single,
+  verbose_fit = 0
+)
+
+final_model <- fe$model
+cat("Final Train C-index:", fe$c_train, "\n")
+cat("Final Test  C-index:", fe$c_test, "\n")
+
+# Optional: save CV table
+write.csv(cv_results, "deepsurv_cv_results_single_run_clincal.csv", row.names = FALSE)
+
+#---------------------------#
+# 7) Variable importance (GBFA) + plots
+#---------------------------#
+cat("\n===== VARIABLE IMPORTANCE (GBFA) =====\n")
+variable_importance <- get_variable_importance(final_model, X_train)
+importance_df <- variable_importance %>% arrange(desc(Importance))
+print(head(importance_df, 20))
+
+ggplot(importance_df, aes(x = reorder(Feature, Importance), y = Importance)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.7) +
+  coord_flip() +
+  labs(
+    title = "DeepSurv feature attribution (GBFA) — single run",
+    x = "Features",
+    y = "Importance score"
+  ) +
+  theme_minimal()
+
+median_sensitivity <- median(importance_df$Importance, na.rm = TRUE)
+shortlisted_GBFA <- importance_df %>% filter(Importance > median_sensitivity)
+shortlisted_GBFA
+
+ggplot(shortlisted_GBFA, aes(x = reorder(Feature, Importance), y = Importance)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.7) +
+  coord_flip() +
+  labs(
+    title = "DeepSurv features above median attribution — single run",
+    x = "Features",
+    y = "Importance score"
+  ) +
+  theme_minimal()
+
+
+
+#---------------------------#
+# 8) Risk predictions on TEST + five-number summary
+#---------------------------#
+cat("\n===== RISK PREDICTIONS (TEST) =====\n")
+predicted_log_risk <- as.numeric(final_model %>% predict(X_test))
+predicted_relative_risk <- exp(predicted_log_risk)
+
+cat("Mean relative risk:", mean(predicted_relative_risk), "\n")
+cat("Median relative risk:", median(predicted_relative_risk), "\n")
+
+deepsurv_risks <- data.frame(
+  predicted_log_risk = predicted_log_risk,
+  predicted_relative_risk = predicted_relative_risk,
+  pfs_months = y_test[, "pfs_months"],
+  pfs_status = y_test[, "pfs_status"]
+)
+
+fivenum_deepsurv_risk <- tibble(surv_risk = predicted_relative_risk) %>%
+  summarise(
+    n = n(),
+    mean = mean(surv_risk, na.rm = TRUE),
+    stdev = sd(surv_risk, na.rm = TRUE),
+    min = min(surv_risk, na.rm = TRUE),
+    q1 = quantile(surv_risk, 0.25, na.rm = TRUE),
+    median = median(surv_risk, na.rm = TRUE),
+    q3 = quantile(surv_risk, 0.75, na.rm = TRUE),
+    max = max(surv_risk, na.rm = TRUE)
+  )
+
+print(fivenum_deepsurv_risk)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Optional: save predictions
+# write.csv(deepsurv_risks, "deepsurv_risk_predictions_test_single_run.csv", row.names = FALSE)
+
+###############################################################################
+# OPTIONAL SECTION: MULTI-RUN REPEATS (If you later change your mind)
+#   - Repeats CV tuning + final fit + test evaluation across multiple seeds
+#   - Stores CV-best mean/SD and final train/test C-indices
+###############################################################################
+
+run_multiple_repeats <- function(X_train, y_train, X_test, y_test,
+                                 hyper_grid,
+                                 num_repeats = 5,
+                                 base_seed = 123,
+                                 k_folds = 5,
+                                 cv_epochs = 100,
+                                 final_epochs = 200,
+                                 patience = 20,
+                                 validation_split = 0.25,
+                                 verbose_fit = 0) {
+  
+  results_summary <- data.frame(
+    Run = integer(),
+    Seed = integer(),
+    Best_Mean_CV = numeric(),
+    Best_SD_CV = numeric(),
+    Final_Train_C_Index = numeric(),
+    Final_Test_C_Index  = numeric()
+  )
+  
+  models_by_run <- vector("list", length = num_repeats)
+  best_params_by_run <- vector("list", length = num_repeats)
+  cv_tables_by_run <- vector("list", length = num_repeats)
+  
+  for (r in 1:num_repeats) {
+    seed_r <- base_seed + r
+    cat("\n==============================\n")
+    cat("MULTI-RUN", r, "Seed", seed_r, "\n")
+    cat("==============================\n")
+    
+    gs_r <- cv_grid_search(
+      X = X_train,
+      y = y_train,
+      hyper_grid = hyper_grid,
+      k_folds = k_folds,
+      epochs = cv_epochs,
+      patience = patience,
+      seed = seed_r,
+      verbose_fit = verbose_fit
+    )
+    
+    best_r <- gs_r$best_params
+    fe_r <- fit_and_evaluate(
+      X_train = X_train, y_train = y_train,
+      X_test  = X_test,  y_test  = y_test,
+      best_params = best_r,
+      epochs = final_epochs,
+      validation_split = validation_split,
+      seed = seed_r,
+      verbose_fit = verbose_fit
+    )
+    
+    results_summary <- rbind(
+      results_summary,
+      data.frame(
+        Run = r,
+        Seed = seed_r,
+        Best_Mean_CV = best_r$Mean_C_Index,
+        Best_SD_CV   = best_r$Std_C_Index,
+        Final_Train_C_Index = fe_r$c_train,
+        Final_Test_C_Index  = fe_r$c_test
+      )
+    )
+    
+    models_by_run[[r]] <- fe_r$model
+    best_params_by_run[[r]] <- best_r
+    cv_tables_by_run[[r]] <- gs_r$results
+    
+    cat("Final Train C-index:", fe_r$c_train, "\n")
+    cat("Final Test  C-index:", fe_r$c_test, "\n")
+  }
+  
+  cat("\n===== MULTI-RUN SUMMARY =====\n")
+  print(results_summary)
+  
+  cat("\nAggregate Train C-index mean:", mean(results_summary$Final_Train_C_Index), "\n")
+  cat("Aggregate Train C-index sd  :", sd(results_summary$Final_Train_C_Index), "\n")
+  cat("Aggregate Test  C-index mean:", mean(results_summary$Final_Test_C_Index), "\n")
+  cat("Aggregate Test  C-index sd  :", sd(results_summary$Final_Test_C_Index), "\n")
+  
+  list(
+    results_summary = results_summary,
+    models_by_run = models_by_run,
+    best_params_by_run = best_params_by_run,
+    cv_tables_by_run = cv_tables_by_run
+  )
+}
+
+# Example usage later:
+# multi_out <- run_multiple_repeats(
+#   X_train = X_train, y_train = y_train,
+#   X_test = X_test, y_test = y_test,
+#   hyper_grid = hyper_grid,
+#   num_repeats = 5,
+#   base_seed = 123,
+#   k_folds = 5
+# )
+
 
 
 
