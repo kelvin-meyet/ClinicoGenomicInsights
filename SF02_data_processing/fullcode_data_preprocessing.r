@@ -32,13 +32,13 @@ setCache(directory ="cbiodata-clinical",
 
 #Get Study IDs available
 stud=getStudies(cbio)
-write.csv(stud, file="cbiodata-clinical\\allstudyIDs.csv")
+#write.csv(stud, file="cbiodata-clinical\\allstudyIDs.csv")
 
 # Get clinical data for specified studyID
 clinic <- clinicalData(api = cbio,
                              studyId = "prad_tcga_pan_can_atlas_2018")
 
-write.csv(clinic, file="cbiodata-clinical\\prca_tcga.csv")
+#write.csv(clinic, file="cbiodata-clinical\\prca_tcga.csv")
 
 
 
