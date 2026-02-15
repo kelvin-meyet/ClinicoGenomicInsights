@@ -100,7 +100,7 @@ combined_data_viz <- bind_rows(train_viz, test_viz)
 
 
 ##Plot 1 - good 
-png(filename = "Figure A.png", width = 1920, height = 1080, units = "px", res = 300)
+png(filename = "Figure S1.png", width = 1920, height = 1080, units = "px", res = 300)
 
 combined_data_viz$Set <- factor(combined_data_viz$Set,
                                 levels = c("Train", "Test"))
@@ -148,101 +148,313 @@ ggplot(pfs_status_summary, aes(x = Set, y = percentage, fill = as.factor(pfs_sta
     plot.title = element_text(hjust = 0.5, size = 16, face = "bold")
   )
 
-
-#========================survival curve===================================
-#---------Radiation Therapy ----------
-png(filename = "Figure4.png", width = 1920, height = 1080, units = "px", res = 300)
+#====================================================================
+#======================== REVISED KM CURVE PLOTS =================
+#====================================================================
 comb_dat$pfs_status = factor(ifelse(comb_dat$pfs_status == 1, "progression", "censored"))
-fit_rad_therapy <- survfit(Surv(comb_dat$pfs_months, comb_dat$pfs_status=="progression") ~ comb_dat$radiation_therapy,
-                           data=comb_dat)
-ggsurvplot(fit_rad_therapy,
-           legend.title     = "Radiation Therapy (RT):",
-           legend.labs      = c("No", "Yes"),
-           conf.int         = TRUE,
-           pval             = TRUE,
-           pval.size        = 2.5,
-           tables.height    = 0.25,
-           tables.theme     = theme_cleantable() + 
-             theme(axis.text.y = element_text(size=8)),
-           risk.table       = TRUE, # Add risk table
-           risk.table.col   = "strata", # Change risk table color by groups
-           risk.table.fontsize = 2.5,  # smaller font size
-           linetype         = "strata", # Change line type by groups
-           surv.median.line = "hv",  # Specify median survival
-           ggtheme          = theme_bw(), # Change ggplot2 theme
-           palette          = c("#00AFBB", "#FC4E07")) #"#2D2D2D"  #E7B800 -- "#E7B800", "#2E9FDF"
+#=====REVISION - KM PLOTS FOR PUBLICATION ======
+# library(survival)
+# library(survminer)
+# library(ggplot2)
+
+#----------------------------
+# 1) Fit KM - NTAIT
+#-----------------------------
+fit_new_tumor_afit <- survfit(
+  Surv(pfs_months, pfs_status == "progression") ~ new_tumor_afit,
+  data = comb_dat
+)
+
+
+# Log-rank p-value (italic p)
+sd <- survdiff(
+  Surv(pfs_months, pfs_status == "progression") ~ new_tumor_afit,
+  data = comb_dat
+)
+p <- 1 - pchisq(sd$chisq, df = length(sd$n) - 1)
+
+# Annotate ggplot 
+p_label <- if (p < 0.0001) {
+  "italic(p) < 0.0001"
+} else {
+  paste0("italic(p) == ", signif(p, 3))
+}
+
+
+risk_table_theme <- theme_cleantable(base_size = 11) +
+  theme(
+    axis.title.y = element_blank(),  # removes the left-side variable label
+    axis.text.y  = element_text(size = 10),
+    plot.margin  = margin(2, 8, 6, 8)
+  )
+
+# Build plot (thin CI band, clean)
+
+g <- ggsurvplot(fit_new_tumor_afit, data = comb_dat,
+  xlab = "Time (months)",
+  ylab = "Survival probability",
+  legend.title = "New Tumor After Initial Treatment (NTAIT):",
+  legend.labs  = c("No", "Yes"),
+  conf.int       = TRUE,
+  conf.int.alpha = 0.10,     # thinner/lighter CI band
+  size           = 0.85,     # line thickness (publication-friendly)
+  censor.size    = 3.0,
+  surv.median.line = "hv",
+  risk.table          = TRUE,
+  risk.table.height   = 0.22,
+  risk.table.col      = "strata",
+  risk.table.fontsize = 3.2,
+  ggtheme      = theme_bw(), #pub_theme,
+  tables.theme = risk_table_theme,
+  palette = c("#00AFBB", "#FC4E07")
+)
+
+# 5. Add italicized p to the main panel
+g$plot <- g$plot +
+  annotate(
+    "text",
+    x = 10, y = 0.20,      # adjust to avoid overlap
+    label = p_label,
+    parse = TRUE,
+    size = 3
+  )
+print(g)
+
+# 6) Export to png
+png("Figure3.png", width = 1920, height = 1200, res = 300)
+print(g)
 dev.off()
 
 
-#---------Neoplasm cancer status----------
-png(filename = "Figure B.png", width = 1920, height = 1080, units = "px", res = 300)
-fit_neoplasm_cancer <- survfit(Surv(comb_dat$pfs_months, comb_dat$pfs_status=="progression") ~ comb_dat$neo_cancer_status,
-                               data = comb_dat)
-ggsurvplot(fit_neoplasm_cancer,
-           legend.title     = "Neoplasm Cancer Status:",
-           legend.labs      = c("Tumor Free", "With Tumor"),
-           conf.int         = TRUE,
-           pval             = TRUE,
-           pval.size        = 2.5,
-           tables.height    = 0.2,
-           tables.theme     = theme_cleantable() + 
-             theme(axis.text.y = element_text(size=8)),
-           risk.table       = TRUE, # Add risk table
-           risk.table.col   = "strata", # Change risk table color by groups
-           risk.table.fontsize = 2.5, #smaller font size
-           linetype         = "strata", # Change line type by groups
-           surv.median.line = "hv", # Specify median survival
-           ggtheme          = theme_bw(), # Change ggplot2 theme
-           palette          = c("#00AFBB", "#FC4E07"))
+
+
+#-------------------------------------------------------
+# 2) Fit KM - Radiation Therapy (RT)
+#-------------------------------------------------------
+fit_radiation_therapy <- survfit(
+  Surv(pfs_months, pfs_status == "progression") ~ radiation_therapy,
+  data = comb_dat
+)
+
+# Log-rank p-value (italic p)
+sd <- survdiff(
+  Surv(pfs_months, pfs_status == "progression") ~ radiation_therapy,
+  data = comb_dat
+)
+p <- 1 - pchisq(sd$chisq, df = length(sd$n) - 1)
+
+# Annotate p value 
+p_label <- if (p < 0.0001) {
+  "italic(p) < 0.0001"
+} else {
+  paste0("italic(p) == ", signif(p, 3))
+}
+
+# Risk Table
+risk_table_theme <- theme_cleantable(base_size = 11) +
+  theme(
+    axis.title.y = element_blank(),  # removes the left-side variable label
+    axis.text.y  = element_text(size = 10),
+    plot.margin  = margin(2, 8, 6, 8)
+  )
+
+
+# Build plot (thin CI band, clean)
+g2 <- ggsurvplot(fit_radiation_therapy, data = comb_dat,
+                xlab = "Time (months)",
+                ylab = "Survival probability",
+                legend.title = "Radiation Therapy (RT):",
+                legend.labs  = c("No", "Yes"),
+                conf.int       = TRUE,
+                conf.int.alpha = 0.10,     # thinner/lighter CI band
+                size           = 0.85,     # line thickness (publication-friendly)
+                censor.size    = 3.0,
+                surv.median.line = "hv",
+                risk.table          = TRUE,
+                risk.table.height   = 0.22,
+                risk.table.col      = "strata",
+                risk.table.fontsize = 3.2,
+                ggtheme      = theme_bw(), #pub_theme,
+                tables.theme = risk_table_theme,
+                palette = c("#00AFBB", "#FC4E07")
+)
+
+# Add italicized p to the main panel
+g2$plot <- g2$plot +annotate("text",
+                             x = 10, y = 0.20,      # adjust to avoid overlap
+                             label = p_label,
+                             parse = TRUE,
+                             size = 3)
+print(g2)
+
+# Export to png
+png("Figure4.png", width = 1920, height = 1200, res = 300)
+print(g2)
 dev.off()
 
-#---------History of Neo-adjuvant treatment----------
-png(filename = "Figure C.png", width = 1920, height = 1080, units = "px", res = 300)
-fit_hist_neoadjuv_trtmnt <- survfit(Surv(comb_dat$pfs_months, comb_dat$pfs_status=="progression") ~ comb_dat$hist_neoadjuv_trtmnt,
-                                    data = comb_dat)
-ggsurvplot(fit_hist_neoadjuv_trtmnt,
-           legend.title     = "Neoadjuvant Treatment History:",
-           legend.labs      = c("No", "Yes"),
-           conf.int         = TRUE,
-           conf.int.style   = "step", 
-           pval             = TRUE,
-           pval.size        = 2.5,
-           tables.height    = 0.2,
-           xlab             = "Time (months)",
-           tables.theme     = theme_cleantable() + theme(axis.text.y = element_text(size=8)),
-           risk.table.fontsize = 2.5, 
-           risk.table       = TRUE, 
-           risk.table.col   = "strata", 
-           linetype         = "strata", 
-           surv.median.line = "hv", 
-           ggtheme          = theme_bw(), 
-           palette          = c("#00AFBB", "#FC4E07"))
+
+
+
+#---------------------------------------------
+# 3) Fit KM - neoplasm_cancer
+#----------------------------------------------
+fit_neoplasm_cancer <- survfit(
+  Surv(pfs_months, pfs_status == "progression") ~ neo_cancer_status,
+  data = comb_dat
+)
+
+
+# Log-rank p-value (italic p)
+sd <- survdiff(
+  Surv(pfs_months, pfs_status == "progression") ~ neo_cancer_status,
+  data = comb_dat
+)
+p <- 1 - pchisq(sd$chisq, df = length(sd$n) - 1)
+
+# Annotate p-value 
+p_label <- if (p < 0.0001) {
+  "italic(p) < 0.0001"
+} else {
+  paste0("italic(p) == ", signif(p, 3))
+}
+
+#Risk table 
+risk_table_theme <- theme_cleantable(base_size = 11) +
+  theme(
+    axis.title.y = element_blank(),  # removes the left-side variable label
+    axis.text.y  = element_text(size = 10),
+    plot.margin  = margin(2, 8, 6, 8)
+  )
+
+# Build plot (thin CI band, clean)
+g3 <- ggsurvplot(fit_neoplasm_cancer, data = comb_dat,
+                 xlab = "Time (months)",
+                 ylab = "Survival probability",
+                 legend.title = "Neoplasm Cancer Status (NCS):",
+                 legend.labs  = c("Tumor Free", "With Tumor"),
+                 conf.int       = TRUE,
+                 #conf.int.style = "step",
+                 conf.int.alpha = 0.10,     # thinner/lighter CI band
+                 size           = 0.85,     # line thickness (publication-friendly)
+                 censor.size    = 3.0,
+                 surv.median.line = "hv",
+                 risk.table          = TRUE,
+                 risk.table.height   = 0.22,
+                 risk.table.col      = "strata",
+                 risk.table.fontsize = 3.2,
+                 ggtheme      = theme_bw(), #pub_theme,
+                 tables.theme = risk_table_theme,
+                 palette = c("#00AFBB", "#FC4E07")
+)
+
+# Add italicized p to the main panel
+g3$plot <- g3$plot +annotate("text",
+                             x = 10, y = 0.20,      # adjust to avoid overlap
+                             label = p_label,
+                             parse = TRUE,
+                             size = 3)
+print(g3)
+
+# Export to png
+png("FigureS2.png", width = 1920, height = 1200, res = 300)
+print(g3)
 dev.off()
 
 
 
 
-#---------New Tumor After Initial Treatment----------
-png(filename = "Figure3.png", width = 1920, height = 1080, units = "px", res = 300)
-fit_new_tumor_afit <- survfit(Surv(comb_dat$pfs_months, comb_dat$pfs_status=="progression") ~ comb_dat$new_tumor_afit,
-                              data = comb_dat)
-ggsurvplot(fit_new_tumor_afit,
-           legend.title     = "New Tumor After Initial Treatment:",
-           legend.labs      = c("No", "Yes"),
-           conf.int         = TRUE,
-           pval             = TRUE,
-           pval.size        = 2.5,
-           tables.height    = 0.2,
-           tables.theme     = theme_cleantable() + 
-             theme(axis.text.y = element_text(size=8)),
-           risk.table       = TRUE, # Add risk table
-           risk.table.col   = "strata", # Change risk table color by groups
-           risk.table.fontsize = 2.5, 
-           linetype         = "strata", # Change line type by groups
-           surv.median.line = "hv", # Specify median survival
-           ggtheme          = theme_bw(), # Change ggplot2 theme
-           palette          = c("#00AFBB", "#FC4E07"))
+
+
+#------------------------------------------------------
+# 4) Fit KM - History of Neo-adjuvant treatment -- Fix later
+#------------------------------------------------------
+#install.packages("remotes")
+# remotes::install_version("ggplot2", version = "3.4.4")
+# library(ggplot2)
+
+fit_hist_neoadjuv_trtmnt <- survfit(
+  Surv(pfs_months, pfs_status == "progression") ~ hist_neoadjuv_trtmnt,
+  data = comb_dat
+)
+
+#Log-rank p-value (italic p)
+sd <- survdiff(
+  Surv(pfs_months, pfs_status == "progression") ~ hist_neoadjuv_trtmnt,
+  data = comb_dat
+)
+p <- 1 - pchisq(sd$chisq, df = length(sd$n) - 1)
+
+# Annotate p value 
+p_label <- if (p < 0.0001) {
+  "italic(p) < 0.0001"
+} else {
+  paste0("italic(p) == ", signif(p, 3))
+}
+
+
+risk_table_theme <- theme_cleantable(base_size = 11) +
+  theme(
+    axis.title.y = element_blank(),  # removes the left-side variable label
+    axis.text.y  = element_text(size = 10),
+    plot.margin  = margin(2, 8, 6, 8)
+  )
+
+
+# Build plot (thin CI band, clean)
+g4 <- ggsurvplot(fit_hist_neoadjuv_trtmnt, data = comb_dat,
+                 xlab = "Time (months)",
+                 ylab = "Survival probability",
+                 legend.title = "Neoadjuvant Treatment History (NTH):",
+                 legend.labs  = c("No", "Yes"),
+                 conf.int       = TRUE,
+                 conf.int.style = "step", # "ribbon",
+                 linetype = 1,
+                 conf.int.alpha = 0.10,     # thinner/lighter CI band
+                 size           = 0.85,     # line thickness (publication-friendly)
+                 censor.size    = 3.0,
+                 surv.median.line = "hv",
+                 risk.table          = TRUE,
+                 risk.table.height   = 0.22,
+                 risk.table.col      = "strata",
+                 risk.table.fontsize = 3.2,
+                 linetype         = "strata",
+                 ggtheme      = theme_bw(), #pub_theme,
+                 tables.theme = risk_table_theme,
+                 palette = c("#00AFBB", "#FC4E07")
+)
+
+# # Force the CI ribbon to use constant aesthetics (no varying linetype/linewidth)
+# g4$plot <- g4$plot +
+#   guides(linetype = "none")  # remove any lingering linetype mapping
+
+# g4$plot$layers <- g4$plot$layers[!sapply(g4$plot$layers, function(x)
+#   "GeomRibbon" %in% class(x$geom)
+# )]
+
+# Add italicized p to the main panel
+g4$plot <- g4$plot + annotate("text",
+                              x = 10, y = 0.20,      # adjust to avoid overlap
+                              label = p_label,
+                              parse = TRUE,
+                              size = 2)
+
+while (dev.cur() > 1) dev.off()
+print(g4)
+
+#Export 
+png("FigureS3.png", width = 1920, height = 1200, res = 300)
+print(g4)
 dev.off()
+
+
+
+
+
+
+
+
+
+
 
 
 
