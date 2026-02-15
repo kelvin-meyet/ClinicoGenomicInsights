@@ -1502,27 +1502,12 @@ fivenum_deepsurv_risk <- tibble(surv_risk = predicted_relative_risk) %>%
 print(fivenum_deepsurv_risk)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # Optional: save predictions
 # write.csv(deepsurv_risks, "deepsurv_risk_predictions_test_single_run.csv", row.names = FALSE)
+
+
+
+
 
 ###############################################################################
 # OPTIONAL SECTION: MULTI-RUN REPEATS (If you later change your mind)

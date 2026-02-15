@@ -148,15 +148,12 @@ ggplot(pfs_status_summary, aes(x = Set, y = percentage, fill = as.factor(pfs_sta
     plot.title = element_text(hjust = 0.5, size = 16, face = "bold")
   )
 
+
+
 #====================================================================
 #======================== REVISED KM CURVE PLOTS =================
 #====================================================================
 comb_dat$pfs_status = factor(ifelse(comb_dat$pfs_status == 1, "progression", "censored"))
-#=====REVISION - KM PLOTS FOR PUBLICATION ======
-# library(survival)
-# library(survminer)
-# library(ggplot2)
-
 #----------------------------
 # 1) Fit KM - NTAIT
 #-----------------------------
@@ -368,10 +365,6 @@ dev.off()
 #------------------------------------------------------
 # 4) Fit KM - History of Neo-adjuvant treatment -- Fix later
 #------------------------------------------------------
-#install.packages("remotes")
-# remotes::install_version("ggplot2", version = "3.4.4")
-# library(ggplot2)
-
 fit_hist_neoadjuv_trtmnt <- survfit(
   Surv(pfs_months, pfs_status == "progression") ~ hist_neoadjuv_trtmnt,
   data = comb_dat
@@ -408,7 +401,7 @@ g4 <- ggsurvplot(fit_hist_neoadjuv_trtmnt, data = comb_dat,
                  legend.labs  = c("No", "Yes"),
                  conf.int       = TRUE,
                  conf.int.style = "step", # "ribbon",
-                 linetype = 1,
+                 #linetype = 1,
                  conf.int.alpha = 0.10,     # thinner/lighter CI band
                  size           = 0.85,     # line thickness (publication-friendly)
                  censor.size    = 3.0,
@@ -423,20 +416,13 @@ g4 <- ggsurvplot(fit_hist_neoadjuv_trtmnt, data = comb_dat,
                  palette = c("#00AFBB", "#FC4E07")
 )
 
-# # Force the CI ribbon to use constant aesthetics (no varying linetype/linewidth)
-# g4$plot <- g4$plot +
-#   guides(linetype = "none")  # remove any lingering linetype mapping
-
-# g4$plot$layers <- g4$plot$layers[!sapply(g4$plot$layers, function(x)
-#   "GeomRibbon" %in% class(x$geom)
-# )]
 
 # Add italicized p to the main panel
 g4$plot <- g4$plot + annotate("text",
-                              x = 10, y = 0.20,      # adjust to avoid overlap
+                              x = 20, y = 0.20,      # adjust to avoid overlap
                               label = p_label,
                               parse = TRUE,
-                              size = 2)
+                              size = 3)
 
 while (dev.cur() > 1) dev.off()
 print(g4)
